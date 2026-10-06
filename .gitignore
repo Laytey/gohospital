@@ -17,3 +17,5 @@ config.json
 coverage.out
 coverage.html
 coverage
+
+NOTES.md
