@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package patient;
+
+option go_package = "github.com/Laytey/gohospital/proto/patient;patientpb";
+
+service PatientService {
+    rpc CreatePatient (CreatePatientRequest) returns (Patient);
+    rpc GetPatient (GetPatientRequest) returns (Patient);
+}
+
+message Patient {
+    string id = 1;
+    string name = 2;
+    string birthdate = 3;
+}
+
+message CreatePatientRequest {
+    string name = 1;
+    string birthdate = 2;
+}
+
+message GetPatientRequest {
+    string id = 1;
+}

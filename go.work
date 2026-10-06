@@ -1,0 +1,8 @@
+go 1.27.0
+
+use (
+	./api-gateway
+	./appointment-service
+	./patient-service
+	./proto
+)

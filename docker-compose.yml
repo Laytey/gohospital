@@ -1,0 +1,52 @@
+services:
+  # PostgreSQL для patient-service
+  postgres-patient:
+    image: postgres:17
+    container_name: gohospital-postgres-patient
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: patient_user
+      POSTGRES_PASSWORD: patient_pass
+      POSTGRES_DB: patients_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U patient_user -d patients_db"]
+      interval: 5s
+      timeout: 30s
+      retries: 5
+    volumes:
+      - pgdata-patient:/var/lib/postgresql/data
+
+  # PostgreSQL для appointment-service
+  postgres-appointment:
+    image: postgres:17
+    container_name: gohospital-postgres-appointment
+    restart: unless-stopped
+    ports:
+      - "5433:5432"        # ← на хосте 5433, внутри 5432
+    environment:
+      POSTGRES_USER: appointment_user
+      POSTGRES_PASSWORD: appointment_pass
+      POSTGRES_DB: appointments_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appointment_user -d appointments_db"]
+      interval: 5s
+      timeout: 30s
+      retries: 5
+    volumes:
+      - pgdata-appointment:/var/lib/postgresql/data
+
+  # NATS (брокер сообщений)
+  nats:
+    image: nats:latest
+    container_name: gohospital-nats
+    restart: unless-stopped
+    ports:
+      - "4222:4222"        # клиентские подключения
+      - "8222:8222"        # веб-UI мониторинга
+    command: ["-m", "8222"]   # включить мониторинг
+
+volumes:
+  pgdata-patient:
+  pgdata-appointment:

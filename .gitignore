@@ -1,0 +1,19 @@
+# Бинарники
+*.exe
+*.out
+
+# IDE
+.idea/
+.vscode/
+
+# Конфиги
+config.json
+*.local.json
+
+# Сертификаты
+*.pem
+
+# Coverage
+coverage.out
+coverage.html
+coverage
