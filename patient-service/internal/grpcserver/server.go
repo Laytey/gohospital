@@ -53,7 +53,7 @@ func (s *PatientServer) GetPatient(ctx context.Context, req *patientpb.GetPatien
 	// 1. Получить из БД
 	patient, err := s.repo.GetByID(ctx, req.GetId())
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "patient not found: %v", err)
+		return nil, status.Errorf(codes.NotFound, "patient not found")
 	}
 
 	// 2. Вернуть protobuf

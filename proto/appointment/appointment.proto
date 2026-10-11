@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package appointment;
+
+option go_package = "github.com/Laytey/gohospital/proto/appointment;appointmentpb";
+
+service AppointmentService {
+    // Создать запись к врачу.
+    rpc CreateAppointment (CreateAppointmentRequest) returns (Appointment);
+
+    // Получить запись по ID.
+    rpc GetAppointment (GetAppointmentRequest) returns (Appointment);
+
+    // Отменить запись.
+    rpc CancelAppointment (CancelAppointmentRequest) returns (Appointment);
+}
+
+message Appointment {
+    string id = 1;
+    string patient_id = 2;
+    string doctor = 3;
+    string time = 4;      // RFC3339 формат: "2026-10-15T14:00:00Z"
+    string status = 5;    // "created", "canceled"
+}
+
+message CreateAppointmentRequest {
+    string patient_id = 1;
+    string doctor = 2;
+    string time = 3;
+}
+
+message GetAppointmentRequest {
+    string id = 1;
+}
+
+message CancelAppointmentRequest {
+    string id = 1;
+}
