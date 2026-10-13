@@ -19,7 +19,8 @@ import (
 func main() {
 	// 1. Загрузить конфиг
 	cfg := config.Load()
-	log.Printf("Config: GRPCPort=%s, NatsURL=%s", cfg.GRPCPort, cfg.NatsURL)
+	log.Printf("Config: GRPCPort=%s, NatsURL=%s, PatientServiceAddr=%s",
+		cfg.GRPCPort, cfg.NatsURL, cfg.PatientServiceAddr)
 
 	// 2. Подключиться к PostgreSQL (appointments_db)
 	storage, err := db.New(context.Background(), cfg.DatabaseURL)
@@ -47,8 +48,9 @@ func main() {
 	// 6. Подключиться к patient-service (gRPC-клиент)
 	// Адрес patient-service: localhost:50051
 	// Insecure credentials — без TLS (для локальной разработки)
+	log.Printf("Connecting to patient-service at %s", cfg.PatientServiceAddr)
 	patientConn, err := grpc.NewClient(
-		"localhost:50051",
+		cfg.PatientServiceAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {

@@ -47,6 +47,64 @@ services:
       - "8222:8222"        # веб-UI мониторинга
     command: ["-m", "8222"]   # включить мониторинг
 
+# patient-service (gRPC :50051)
+  patient-service:
+    build:
+      context: .
+      dockerfile: patient-service/Dockerfile
+    container_name: gohospital-patient-service
+    restart: unless-stopped
+    ports:
+      - "50051:50051"
+    environment:
+      GRPC_PORT: ":50051"
+      DATABASE_URL: "postgres://patient_user:patient_pass@postgres-patient:5432/patients_db?sslmode=disable"
+    depends_on:
+      postgres-patient:
+        condition: service_healthy
+
+# appointment-service (gRPC :50052 + NATS)
+  appointment-service:
+    build:
+      context: .
+      dockerfile: appointment-service/Dockerfile
+    container_name: gohospital-appointment-service
+    restart: unless-stopped
+    ports:
+      - "50052:50052"
+    environment:
+      GRPC_PORT: ":50052"
+      DATABASE_URL: "postgres://appointment_user:appointment_pass@postgres-appointment:5432/appointments_db?sslmode=disable"
+      NATS_URL: "nats://nats:4222"
+      PATIENT_SERVICE_ADDR: "patient-service:50051"
+    depends_on:
+      postgres-appointment:
+        condition: service_healthy
+      nats:
+        condition: service_started
+      patient-service:
+        condition: service_started
+
+# api-gateway (HTTP :8080)
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: gohospital-api-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      HTTP_PORT: ":8080"
+      PATIENT_SERVICE_ADDR: "patient-service:50051"
+      APPOINTMENT_SERVICE_ADDR: "appointment-service:50052"
+    depends_on:
+      patient-service:
+        condition: service_started
+      appointment-service:
+        condition: service_started
+
+
 volumes:
   pgdata-patient:
   pgdata-appointment:
