@@ -2,16 +2,25 @@ package grpcserver
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/Laytey/gohospital/appointment-service/internal/models"
 	"github.com/Laytey/gohospital/appointment-service/internal/repository"
 	appointmentpb "github.com/Laytey/gohospital/proto/appointment"
 	patientpb "github.com/Laytey/gohospital/proto/patient"
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+const (
+	statusCreated  = "created"
+	statusCanceled = "canceled"
 )
 
 // AppointmentServer реализует gRPC-сервис AppointmentService.
@@ -23,6 +32,7 @@ import (
 type AppointmentServer struct {
 	appointmentpb.UnimplementedAppointmentServiceServer
 	repo          repository.AppointmentRepository
+	outboxRepo    repository.OutboxRepository
 	nc            *nats.Conn
 	patientClient patientpb.PatientServiceClient
 }
@@ -30,11 +40,13 @@ type AppointmentServer struct {
 // NewAppointmentServer создаёт gRPC-сервер с указанными зависимостями.
 func NewAppointmentServer(
 	repo repository.AppointmentRepository,
+	outboxRepo repository.OutboxRepository,
 	nc *nats.Conn,
 	patientClient patientpb.PatientServiceClient,
 ) *AppointmentServer {
 	return &AppointmentServer{
 		repo:          repo,
+		outboxRepo:    outboxRepo,
 		nc:            nc,
 		patientClient: patientClient,
 	}
@@ -42,46 +54,94 @@ func NewAppointmentServer(
 
 // CreateAppointment обрабатывает gRPC-вызов создания записи.
 func (s *AppointmentServer) CreateAppointment(ctx context.Context, req *appointmentpb.CreateAppointmentRequest) (*appointmentpb.Appointment, error) {
-	// 1. Проверить существование пациента через gRPC
-	_, err := s.patientClient.GetPatient(ctx, &patientpb.GetPatientRequest{Id: req.GetPatientId()})
-	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "patient not found: %v", err)
+	// 1. Валидация входных данных
+	patientID := strings.TrimSpace(req.GetPatientId())
+	if patientID == "" {
+		return nil, status.Error(codes.InvalidArgument, "ID пациента не может быть пустым")
 	}
 
-	// 2. Распарсить время
+	doctor := strings.TrimSpace(req.GetDoctor())
+	if doctor == "" {
+		return nil, status.Error(codes.InvalidArgument, "имя врача не может быть пустым")
+	}
+
 	appointmentTime, err := time.Parse(time.RFC3339, req.GetTime())
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid time format: %v", err)
+		return nil, status.Errorf(codes.InvalidArgument, "неверный формат времени, ожидается RFC3339: %v", err)
+	}
+	if appointmentTime.Before(time.Now()) {
+		return nil, status.Error(codes.InvalidArgument, "время приёма не может быть в прошлом")
 	}
 
-	// 3. Создать модель
+	// 2. Проверить существование пациента через gRPC
+	// Отдельный deadline для вызова patient-service:
+	// меньше, чем у api-gateway, чтобы у appointment было время
+	// сохранить запись в БД после ответа пациента.
+	patientCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	_, err = s.patientClient.GetPatient(patientCtx, &patientpb.GetPatientRequest{Id: patientID})
+	if err != nil {
+		st, ok := status.FromError(err)
+		if ok {
+			switch st.Code() {
+			case codes.NotFound:
+				return nil, status.Errorf(codes.NotFound, "пациент %s не найден", patientID)
+			case codes.InvalidArgument:
+				return nil, status.Errorf(codes.InvalidArgument, "некорректный ID пациента: %s", st.Message())
+			case codes.DeadlineExceeded:
+				// Наш собственный таймаут на вызов patient-service истёк.
+				// Прокидываем наверх, чтобы api-gateway вернул 504, а не 500.
+				return nil, status.Error(codes.DeadlineExceeded, "превышено время ожидания ответа от patient-service")
+			case codes.Unavailable:
+				// patient-service недоступен (контейнер лёг, сеть порвалась).
+				return nil, status.Error(codes.Unavailable, "patient-service временно недоступен")
+			}
+		}
+		return nil, status.Errorf(codes.Internal, "не удалось проверить пациента: %v", err)
+	}
+
+	// 3. Создать и сохранить
 	appointment := models.Appointment{
-		PatientID: req.GetPatientId(),
-		Doctor:    req.GetDoctor(),
+		ID:        uuid.NewString(),
+		PatientID: patientID,
+		Doctor:    doctor,
 		Time:      appointmentTime,
-		Status:    "created",
+		Status:    statusCreated,
 	}
 
-	// 4. Сохранить в БД
-	if err := s.repo.Save(ctx, &appointment); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to save appointment: %v", err)
+	// 4. Сериализовать событие в JSON
+	payload, err := json.Marshal(map[string]any{
+		"id":         appointment.ID,
+		"patient_id": appointment.PatientID,
+		"doctor":     appointment.Doctor,
+		"time":       appointment.Time.Format(time.RFC3339),
+		"status":     appointment.Status,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "не удалось сериализовать событие: %v", err)
 	}
 
-	// 5. Опубликовать событие в NATS
-	if err := s.nc.Publish("appointment.created", []byte(appointment.ID)); err != nil {
-		log.Printf("failed to publish appointment.created: %v", err)
+	// 5. Сохранить appointment + событие в одной транзакции
+	if err := s.outboxRepo.SaveInTx(ctx, &appointment, "appointment.created", payload); err != nil {
+		return nil, status.Errorf(codes.Internal, "не удалось сохранить запись: %v", err)
 	}
 
-	// 6. Вернуть
 	return toProtoAppointment(appointment), nil
 }
 
 // GetAppointment обрабатывает gRPC-вызов получения записи по ID.
 func (s *AppointmentServer) GetAppointment(ctx context.Context, req *appointmentpb.GetAppointmentRequest) (*appointmentpb.Appointment, error) {
+	if strings.TrimSpace(req.GetId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "ID не может быть пустым")
+	}
 
 	a, err := s.repo.GetByID(ctx, req.GetId())
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "appointment not found: %v", err)
+		if errors.Is(err, repository.ErrAppointmentNotFound) {
+			return nil, status.Errorf(codes.NotFound, "запись %s не найдена", req.GetId())
+		}
+		return nil, status.Errorf(codes.Internal, "не удалось получить запись: %v", err)
 	}
 
 	return toProtoAppointment(a), nil
@@ -89,25 +149,42 @@ func (s *AppointmentServer) GetAppointment(ctx context.Context, req *appointment
 
 // CancelAppointment обрабатывает gRPC-вызов отмены записи.
 func (s *AppointmentServer) CancelAppointment(ctx context.Context, req *appointmentpb.CancelAppointmentRequest) (*appointmentpb.Appointment, error) {
-	// 1. Обновить статус в БД
-	err := s.repo.UpdateStatus(ctx, req.GetId(), "canceled")
+	if strings.TrimSpace(req.GetId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "ID не может быть пустым")
+	}
+
+	// 1. Обновить статус
+	err := s.repo.UpdateStatus(ctx, req.GetId(), statusCanceled)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "appointment not found: %v", err)
+		if errors.Is(err, repository.ErrAppointmentNotFound) {
+			return nil, status.Errorf(codes.NotFound, "запись %s не найдена", req.GetId())
+		}
+		return nil, status.Errorf(codes.Internal, "не удалось обновить статус записи: %v", err)
 	}
 
 	// 2. Прочитать обновлённую запись
 	a, err := s.repo.GetByID(ctx, req.GetId())
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get appointment: %v", err)
+		return nil, status.Errorf(codes.Internal, "не удалось прочитать обновлённую запись: %v", err)
 	}
 
-	// 3. Опубликовать событие в NATS
-	err = s.nc.Publish("appointment.canceled", []byte(a.ID))
+	// 3. Опубликовать событие через outbox
+	payload, err := json.Marshal(map[string]any{
+		"id":         a.ID,
+		"patient_id": a.PatientID,
+		"doctor":     a.Doctor,
+		"time":       a.Time.Format(time.RFC3339),
+		"status":     a.Status,
+	})
 	if err != nil {
-		log.Printf("failed to publish: %v", err)
+		log.Printf("failed to marshal canceled event: %v", err)
+		return toProtoAppointment(a), nil // возвращаем результат, но без события
 	}
 
-	// 4. Вернуть прото
+	if err := s.outboxRepo.SaveEventOnly(ctx, "appointment.canceled", payload); err != nil {
+		log.Printf("failed to save canceled event to outbox: %v", err)
+	}
+
 	return toProtoAppointment(a), nil
 
 }

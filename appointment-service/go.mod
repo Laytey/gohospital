@@ -3,6 +3,8 @@ module github.com/Laytey/gohospital/appointment-service
 go 1.27.0
 
 require (
+	github.com/Laytey/gohospital/proto v0.0.0-20261013180056-739455db8609
+	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/nats-io/nats.go v1.54.0
@@ -14,6 +16,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/klauspost/compress v1.20.0 // indirect
+	github.com/lib/pq v1.10.9 // indirect
 	github.com/nats-io/nkeys v0.4.16 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	golang.org/x/crypto v0.57.0 // indirect

@@ -4,11 +4,15 @@ import (
 	"context"
 	"log"
 	"net"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/Laytey/gohospital/appointment-service/internal/config"
 	"github.com/Laytey/gohospital/appointment-service/internal/db"
 	"github.com/Laytey/gohospital/appointment-service/internal/grpcserver"
 	"github.com/Laytey/gohospital/appointment-service/internal/repository"
+	"github.com/Laytey/gohospital/appointment-service/migrations"
 	appointmentpb "github.com/Laytey/gohospital/proto/appointment"
 	patientpb "github.com/Laytey/gohospital/proto/patient"
 	"github.com/nats-io/nats.go"
@@ -16,23 +20,32 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+const shutdownTimeout = 10 * time.Second
+
 func main() {
-	// 1. Загрузить конфиг
+	// 1. Контекст, отменяемый при SIGTERM/SIGINT
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	// 2. Конфиг
 	cfg := config.Load()
 	log.Printf("Config: GRPCPort=%s, NatsURL=%s, PatientServiceAddr=%s",
 		cfg.GRPCPort, cfg.NatsURL, cfg.PatientServiceAddr)
 
-	// 2. Подключиться к PostgreSQL (appointments_db)
-	storage, err := db.New(context.Background(), cfg.DatabaseURL)
+	// 3. PostgreSQL
+	storage, err := db.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("DB connection failed: %v", err)
 	}
+	defer storage.Pool.Close()
 	log.Println("Connected to PostgreSQL")
 
-	// 3. Создать репозиторий
-	appointmentRepo := repository.NewPostgresAppointmentRepository(storage)
+	// 4. Миграции
+	if err := db.RunMigrations(ctx, cfg.DatabaseURL, migrations.FS); err != nil {
+		log.Fatalf("Migrations failed: %v", err)
+	}
 
-	// 4. Подключиться к NATS
+	// 5. NATS
 	nc, err := nats.Connect(cfg.NatsURL)
 	if err != nil {
 		log.Fatalf("NATS connection failed: %v", err)
@@ -40,14 +53,12 @@ func main() {
 	defer nc.Close()
 	log.Println("Connected to NATS")
 
-	// 5. Запустить notification worker
+	// 6. Notification worker
 	if err := grpcserver.StartNotificationWorker(nc); err != nil {
 		log.Fatalf("Failed to start notification worker: %v", err)
 	}
 
-	// 6. Подключиться к patient-service (gRPC-клиент)
-	// Адрес patient-service: localhost:50051
-	// Insecure credentials — без TLS (для локальной разработки)
+	// 7. gRPC-клиент к patient-service
 	log.Printf("Connecting to patient-service at %s", cfg.PatientServiceAddr)
 	patientConn, err := grpc.NewClient(
 		cfg.PatientServiceAddr,
@@ -57,27 +68,63 @@ func main() {
 		log.Fatalf("Failed to connect to patient-service: %v", err)
 	}
 	defer patientConn.Close()
-
 	patientClient := patientpb.NewPatientServiceClient(patientConn)
 	log.Println("Connected to patient-service (gRPC client)")
 
-	// 7. Создать gRPC-сервер с зависимостями
-	server := grpcserver.NewAppointmentServer(appointmentRepo, nc, patientClient)
+	// 8. Наш gRPC-сервер
+	appointmentRepo := repository.NewPostgresAppointmentRepository(storage)
+	outboxRepo := repository.NewPostgresOutboxRepository(storage)
 
-	// 8. Создать TCP-листенер
+	// Запустить воркер Outbox
+	grpcserver.StartOutboxPublisher(ctx, outboxRepo, nc)
+
+	server := grpcserver.NewAppointmentServer(appointmentRepo, outboxRepo, nc, patientClient)
+
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(
+			grpcserver.RecoveryInterceptor,
+			grpcserver.LoggingInterceptor,
+		),
+	)
+	appointmentpb.RegisterAppointmentServiceServer(grpcServer, server)
+
 	listener, err := net.Listen("tcp", cfg.GRPCPort)
 	if err != nil {
 		log.Fatalf("Failed to listen on %s: %v", cfg.GRPCPort, err)
 	}
 
-	// 9. Создать gRPC-сервер (стандартный)
-	grpcServer := grpc.NewServer()
-	appointmentpb.RegisterAppointmentServiceServer(grpcServer, server)
+	go func() {
+		log.Printf("gRPC server listening on %s", cfg.GRPCPort)
+		if err := grpcServer.Serve(listener); err != nil {
+			log.Printf("gRPC serve stopped: %v", err)
+		}
+	}()
 
-	log.Printf("gRPC server listening on %s", cfg.GRPCPort)
+	// 9. Ждём сигнал
+	<-ctx.Done()
+	log.Println("Shutdown signal received, starting graceful shutdown...")
 
-	// 10. Запустить
-	if err := grpcServer.Serve(listener); err != nil {
-		log.Fatalf("Server failed to serve: %v", err)
+	// 10. Сначала gRPC — чтобы не принимали новые запросы
+	stopped := make(chan struct{})
+	go func() {
+		grpcServer.GracefulStop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+		log.Println("gRPC server stopped gracefully")
+	case <-time.After(shutdownTimeout):
+		log.Println("Shutdown timeout exceeded, forcing stop")
+		grpcServer.Stop()
 	}
+
+	// 11. Дренаж NATS — дошли буферизованные сообщения
+	if err := nc.Drain(); err != nil {
+		log.Printf("NATS drain error: %v", err)
+	} else {
+		log.Println("NATS drained")
+	}
+
+	log.Println("Goodbye")
 }

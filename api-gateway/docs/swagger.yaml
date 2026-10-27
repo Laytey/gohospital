@@ -1,0 +1,224 @@
+basePath: /
+definitions:
+  api-gateway_internal_handlers.CreateAppointmentRequest:
+    properties:
+      doctor:
+        type: string
+      patient_id:
+        type: string
+      time:
+        type: string
+    required:
+    - doctor
+    - patient_id
+    - time
+    type: object
+  api-gateway_internal_handlers.CreatePatientRequest:
+    properties:
+      birthdate:
+        type: string
+      name:
+        type: string
+    required:
+    - birthdate
+    - name
+    type: object
+  github_com_Laytey_gohospital_proto_appointment.Appointment:
+    properties:
+      doctor:
+        type: string
+      id:
+        type: string
+      patient_id:
+        type: string
+      status:
+        description: '"created", "canceled"'
+        type: string
+      time:
+        description: 'RFC3339 формат: "2026-10-15T14:00:00Z"'
+        type: string
+    type: object
+  github_com_Laytey_gohospital_proto_patient.Patient:
+    properties:
+      birthdate:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: Микросервисная система для автоматизации записей к врачу
+  title: GoHospital API
+  version: "1.0"
+paths:
+  /appointments:
+    post:
+      consumes:
+      - application/json
+      description: Добавляет новую запись в базу данных
+      parameters:
+      - description: Данные записи
+        in: body
+        name: patient
+        required: true
+        schema:
+          $ref: '#/definitions/api-gateway_internal_handlers.CreateAppointmentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_Laytey_gohospital_proto_appointment.Appointment'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Создать запись
+      tags:
+      - appointments
+  /appointments/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Возвращает запись по её ID
+      parameters:
+      - description: ID записи
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_Laytey_gohospital_proto_appointment.Appointment'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Получить запись
+      tags:
+      - appointments
+  /appointments/{id}/cancel:
+    post:
+      consumes:
+      - application/json
+      description: Меняет статус записи на 'canceled'
+      parameters:
+      - description: ID записи
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_Laytey_gohospital_proto_appointment.Appointment'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Отменить запись
+      tags:
+      - appointments
+  /patients:
+    post:
+      consumes:
+      - application/json
+      description: Добавляет нового пациента в базу данных
+      parameters:
+      - description: Данные пациента
+        in: body
+        name: patient
+        required: true
+        schema:
+          $ref: '#/definitions/api-gateway_internal_handlers.CreatePatientRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_Laytey_gohospital_proto_patient.Patient'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Создать пациента
+      tags:
+      - patients
+  /patients/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Возвращает данные пациента по его ID
+      parameters:
+      - description: ID пациента
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_Laytey_gohospital_proto_patient.Patient'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Получить пациента
+      tags:
+      - patients
+swagger: "2.0"

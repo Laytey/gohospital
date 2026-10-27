@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/Laytey/gohospital/api-gateway/internal/client"
+	_ "github.com/Laytey/gohospital/proto/appointment"
 	"github.com/gin-gonic/gin"
 )
 
@@ -31,18 +32,30 @@ type CreateAppointmentRequest struct {
 
 // CreateAppointment обрабатывает POST /appointments.
 //
-// Тело запроса — JSON с полями patient_id, doctor, time.
+// Тело запроса — JSON с полями name, birthdate.
 //
 // Ответы:
-//   - 400 Bad Request — если JSON некорректен или time невалиден.
-//   - 404 Not Found — если пациент не найден.
+//   - 400 Bad Request — если JSON некорректен.
 //   - 500 Internal Server Error — при внутренней ошибке.
 //   - 201 Created — созданная запись.
+//
+// @Summary      Создать запись
+// @Description  Добавляет новую запись в базу данных
+// @Tags         appointments
+// @Accept       json
+// @Produce      json
+// @Param        patient  body      CreateAppointmentRequest  true  "Данные записи"
+// @Success      201      {object}  appointmentpb.Appointment
+// @Failure      400      {object}  map[string]string
+// @Failure      500      {object}  map[string]string
+// @Router       /appointments [post]
 func (h *AppointmentHandler) CreateAppointment(c *gin.Context) {
 
 	var req CreateAppointmentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "некорректное тело запроса: поля 'patient_id', 'doctor' и 'time' обязательны",
+		})
 		return
 	}
 
@@ -57,10 +70,16 @@ func (h *AppointmentHandler) CreateAppointment(c *gin.Context) {
 
 // GetAppointment обрабатывает GET /appointments/:id.
 //
-// Ответы:
-//   - 404 Not Found — если запись не найдена.
-//   - 500 Internal Server Error — при внутренней ошибке.
-//   - 200 OK — запись в JSON.
+// @Summary      Получить запись
+// @Description  Возвращает запись по её ID
+// @Tags         appointments
+// @Accept       json
+// @Produce      json
+// @Param        id   path      string  true  "ID записи"
+// @Success      200  {object}  appointmentpb.Appointment
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /appointments/{id} [get]
 func (h *AppointmentHandler) GetAppointment(c *gin.Context) {
 	id := c.Param("id")
 	appointment, err := h.client.GetAppointment(c.Request.Context(), id)
@@ -74,10 +93,16 @@ func (h *AppointmentHandler) GetAppointment(c *gin.Context) {
 
 // CancelAppointment обрабатывает POST /appointments/:id/cancel.
 //
-// Ответы:
-//   - 404 Not Found — если запись не найдена.
-//   - 500 Internal Server Error — при внутренней ошибке.
-//   - 200 OK — обновлённая запись (status=canceled).
+// @Summary      Отменить запись
+// @Description  Меняет статус записи на 'canceled'
+// @Tags         appointments
+// @Accept       json
+// @Produce      json
+// @Param        id   path      string  true  "ID записи"
+// @Success      200  {object}  appointmentpb.Appointment
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /appointments/{id}/cancel [post]
 func (h *AppointmentHandler) CancelAppointment(c *gin.Context) {
 	id := c.Param("id")
 	appointment, err := h.client.CancelAppointment(c.Request.Context(), id)

@@ -16,8 +16,12 @@ COPY api-gateway/ ./api-gateway/
 
 RUN cd api-gateway && CGO_ENABLED=0 GOOS=linux go build -o /api-gateway ./cmd
 
+# ---------------------------------------------------------
 # Шаг 2: Финальный образ
+# ---------------------------------------------------------
 FROM alpine:latest
+
+RUN apk add --no-cache tzdata
 
 WORKDIR /root/
 

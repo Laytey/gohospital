@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"time"
 
 	patientpb "github.com/Laytey/gohospital/proto/patient"
 	"google.golang.org/grpc"
@@ -14,8 +15,9 @@ import (
 // Инкапсулирует соединение и предоставляет удобные методы
 // для api-gateway.
 type PatientClient struct {
-	conn   *grpc.ClientConn
-	client patientpb.PatientServiceClient
+	conn    *grpc.ClientConn
+	client  patientpb.PatientServiceClient
+	timeout time.Duration
 }
 
 // NewPatientClient создаёт клиент и устанавливает соединение с patient-service.
@@ -31,8 +33,9 @@ func NewPatientClient(addr string) (*PatientClient, error) {
 	}
 
 	return &PatientClient{
-		conn:   conn,
-		client: patientpb.NewPatientServiceClient(conn),
+		conn:    conn,
+		client:  patientpb.NewPatientServiceClient(conn),
+		timeout: defaultTimeout,
 	}, nil
 
 }
@@ -44,6 +47,9 @@ func (c *PatientClient) Close() error {
 
 // CreatePatient создаёт нового пациента.
 func (c *PatientClient) CreatePatient(ctx context.Context, name, birthdate string) (*patientpb.Patient, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
 	return c.client.CreatePatient(ctx, &patientpb.CreatePatientRequest{
 		Name:      name,
 		Birthdate: birthdate,
@@ -52,6 +58,9 @@ func (c *PatientClient) CreatePatient(ctx context.Context, name, birthdate strin
 
 // GetPatient возвращает пациента по ID.
 func (c *PatientClient) GetPatient(ctx context.Context, id string) (*patientpb.Patient, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
 	return c.client.GetPatient(ctx, &patientpb.GetPatientRequest{
 		Id: id,
 	})

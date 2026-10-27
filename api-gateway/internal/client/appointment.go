@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appointmentpb "github.com/Laytey/gohospital/proto/appointment"
 	"google.golang.org/grpc"
@@ -14,8 +15,9 @@ import (
 // Инкапсулирует соединение и предоставляет удобные методы
 // для api-gateway.
 type AppointmentClient struct {
-	conn   *grpc.ClientConn
-	client appointmentpb.AppointmentServiceClient
+	conn    *grpc.ClientConn
+	client  appointmentpb.AppointmentServiceClient
+	timeout time.Duration
 }
 
 // NewAppointmentClient создаёт клиент и устанавливает соединение
@@ -32,8 +34,9 @@ func NewAppointmentClient(addr string) (*AppointmentClient, error) {
 	}
 
 	return &AppointmentClient{
-		conn:   conn,
-		client: appointmentpb.NewAppointmentServiceClient(conn),
+		conn:    conn,
+		client:  appointmentpb.NewAppointmentServiceClient(conn),
+		timeout: defaultTimeout,
 	}, nil
 }
 
@@ -44,6 +47,9 @@ func (c *AppointmentClient) Close() error {
 
 // CreateAppointment создаёт новую запись.
 func (c *AppointmentClient) CreateAppointment(ctx context.Context, patientID, doctor, timeStr string) (*appointmentpb.Appointment, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
 	return c.client.CreateAppointment(ctx, &appointmentpb.CreateAppointmentRequest{
 		PatientId: patientID,
 		Doctor:    doctor,
@@ -53,6 +59,9 @@ func (c *AppointmentClient) CreateAppointment(ctx context.Context, patientID, do
 
 // GetAppointment возвращает запись по ID.
 func (c *AppointmentClient) GetAppointment(ctx context.Context, id string) (*appointmentpb.Appointment, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
 	return c.client.GetAppointment(ctx, &appointmentpb.GetAppointmentRequest{
 		Id: id,
 	})
@@ -60,6 +69,9 @@ func (c *AppointmentClient) GetAppointment(ctx context.Context, id string) (*app
 
 // CancelAppointment отменяет запись.
 func (c *AppointmentClient) CancelAppointment(ctx context.Context, id string) (*appointmentpb.Appointment, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
 	return c.client.CancelAppointment(ctx, &appointmentpb.CancelAppointmentRequest{
 		Id: id,
 	})

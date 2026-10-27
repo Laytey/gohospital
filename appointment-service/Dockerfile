@@ -16,8 +16,12 @@ COPY appointment-service/ ./appointment-service/
 
 RUN cd appointment-service && CGO_ENABLED=0 GOOS=linux go build -o /appointment-service ./cmd
 
+# ---------------------------------------------------------
 # Шаг 2: Финальный образ
+# ---------------------------------------------------------
 FROM alpine:latest
+
+RUN apk add --no-cache tzdata
 
 WORKDIR /root/
 

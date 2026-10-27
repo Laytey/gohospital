@@ -2,11 +2,12 @@ package repository
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	"github.com/Laytey/gohospital/patient-service/internal/db"
 	"github.com/Laytey/gohospital/patient-service/internal/models"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // PatientRepository определяет контракт для работы с пациентами.
@@ -52,7 +53,10 @@ func (r *PostgresPatientRepository) GetByID(ctx context.Context, id string) (mod
 	var p models.Patient
 	err := r.storage.Pool.QueryRow(ctx, query, id).Scan(&p.ID, &p.Name, &p.Birthdate, &p.CreatedAt)
 	if err != nil {
-		return models.Patient{}, errors.New("patient not found")
+		if err == pgx.ErrNoRows {
+			return models.Patient{}, pgx.ErrNoRows
+		}
+		return models.Patient{}, fmt.Errorf("failed to query patient: %w", err)
 	}
 	return p, nil
 }

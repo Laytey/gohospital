@@ -20,15 +20,20 @@ COPY patient-service/ ./patient-service/
 # Собираем бинарник
 RUN cd patient-service && CGO_ENABLED=0 GOOS=linux go build -o /patient-service ./cmd
 
-# Шаг2: Финальный образ
+# ---------------------------------------------------------
+# Шаг 2: Финальный образ (начинается НОВЫЙ этап)
+# ---------------------------------------------------------
 FROM alpine:latest
+
+# Устанавливаем базу часовых поясов
+RUN apk add --no-cache tzdata
 
 WORKDIR /root/
 
 # Копируем бинарник из builder
 COPY --from=builder /patient-service .
 
-# Открываем порт (информативно)
+# Открываем порт
 EXPOSE 50051
 
 # Запускаем
